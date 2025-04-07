@@ -4,6 +4,7 @@ import argparse
 import numpy as np
 import pandas as pd
 from sklearn.metrics import classification_report
+from tqdm import tqdm
 
 import torch
 from torch.utils.data import Dataset
@@ -11,9 +12,22 @@ from torch.utils.data import DataLoader
 import torch.nn as nn
 from torch.nn import BCEWithLogitsLoss
 from transformers import AutoTokenizer, AutoModelForSequenceClassification
-from transformers import AdamW
+from torch.optim import AdamW
 from emote_config import Emote_Config
 
+
+def save_model(model, tokenizer, save_path):
+    """Helper function to save any model type"""
+    if hasattr(model, 'save_pretrained'):
+        # For standard Hugging Face models
+        model.save_pretrained(save_path)
+        tokenizer.save_pretrained(save_path)
+    else:
+        # Fallback for other models - just save the state dict
+        os.makedirs(save_path, exist_ok=True)
+        torch.save(model.state_dict(), os.path.join(save_path, "pytorch_model.bin"))
+        if tokenizer is not None:
+            tokenizer.save_pretrained(save_path)
 
 class EmoteTrainer:
     def __init__(self, model, train_loader, val_loader, test_loader, device, new_emote_config, tokenizer):
@@ -35,7 +49,20 @@ class EmoteTrainer:
 
         self.loss_fn = BCEWithLogitsLoss()
 
-        self.optimizer = AdamW(self.model.parameters(), lr=1e-5)
+        # Configure optimizer to not include image model parameters
+        if hasattr(self.model, 'image_model'):
+            # For multimodal model - exclude image model parameters
+            # Get all parameters except image model
+            optimizer_params = [
+                {'params': [p for n, p in self.model.named_parameters() 
+                            if 'image_model' not in n and p.requires_grad], 
+                 'lr': 1e-5}
+            ]
+            self.optimizer = AdamW(optimizer_params, weight_decay=0.01)
+        else:
+            # Original model
+            self.optimizer = AdamW(self.model.parameters(), lr=1e-5, weight_decay=0.01)
+        
         self.best_val_loss = np.inf
         self.best_val_acc = 0
         self.best_epoch = -1
@@ -46,12 +73,27 @@ class EmoteTrainer:
         self.fp_csv_best = '{}/portion_{}_seed_{}_best.csv'.format(self.save_dir, self.portion, self.seed)
 
     def train(self, epochs):
-        for epoch in range(epochs):
-            print(f'Epoch {epoch+1}/{epochs}')
+        # Create a progress bar for epochs
+        epoch_pbar = tqdm(range(epochs), desc="Training", unit="epoch")
+        
+        for epoch in epoch_pbar:
+            # Update the progress bar description
+            epoch_pbar.set_description(f"Epoch {epoch+1}/{epochs}")
             
+            # Run training epoch with progress bar
             self._run_epoch(epoch, train=True)
+            
+            # Run validation with progress bar
             val_acc, val_acc_strategy = self._run_epoch(epoch=epoch, train=False, loader=self.val_loader)
+            
+            # Run test with progress bar
             test_acc, test_acc_strategy = self._run_epoch(epoch=epoch, train=False, loader=self.test_loader)
+            
+            # Update progress bar with current metrics
+            epoch_pbar.set_postfix({
+                'val_acc': f"{val_acc:.2f}%", 
+                'test_acc': f"{test_acc:.2f}%"
+            })
             
             if val_acc > self.best_val_acc:
                 self.best_val_acc = val_acc
@@ -73,14 +115,16 @@ class EmoteTrainer:
             # if epoch is 0, then save the model
             if epoch == 0 and self.portion == 1: ## we now only save fully trained models
                 model_to_save = self.model.module if hasattr(self.model, 'module') else self.model
-                model_to_save.save_pretrained("{}/seed_{}_epoch_{}.pt".format(self.new_emote_config.model_save_dir, self.seed, epoch))
-                self.tokenizer.save_pretrained("{}/seed_{}_epoch_{}.pt".format(self.new_emote_config.model_save_dir, self.seed, epoch))
-                print("Saving model checkpoint to %s" % "{}/seed_{}_epoch_{}.pt".format(self.new_emote_config.model_save_dir, self.seed, epoch))
+                save_path = "{}/seed_{}_epoch_{}.pt".format(
+                    self.new_emote_config.model_save_dir, self.seed, epoch)
+                save_model(model_to_save, self.tokenizer, save_path)
+                print(f"Saving model checkpoint to {save_path}")
             if epoch > 0 and val_acc > self.best_val_acc and self.portion == 1:
                 model_to_save = self.model.module if hasattr(self.model, 'module') else self.model
-                model_to_save.save_pretrained("{}/seed_{}_epoch_{}.pt".format(self.new_emote_config.model_save_dir, self.seed, epoch))
-                self.tokenizer.save_pretrained("{}/seed_{}_epoch_{}.pt".format(self.new_emote_config.model_save_dir, self.seed, epoch))
-                print("Saving model checkpoint to %s" % "{}/seed_{}_epoch_{}.pt".format(self.new_emote_config.model_save_dir, self.seed, epoch))
+                save_path = "{}/seed_{}_epoch_{}.pt".format(
+                    self.new_emote_config.model_save_dir, self.seed, epoch)
+                save_model(model_to_save, self.tokenizer, save_path)
+                print(f"Saving model checkpoint to {save_path}")
 
         # Print the epoch with the best validation loss
         print(f'Best Epoch: {self.best_epoch}')
@@ -106,7 +150,10 @@ class EmoteTrainer:
         strategies_correct = [0]*7
         strategies_total = [0]*7
 
-        for batch in loader:
+        # Create a progress bar for batches
+        batch_pbar = tqdm(loader, desc=f"{str_} Epoch {epoch+1}", leave=False)
+        
+        for batch_idx, batch in enumerate(batch_pbar):
             # Separate strategies from the rest of the batch data
             strategies = batch.pop('strategies').to(self.device)
 
@@ -115,11 +162,14 @@ class EmoteTrainer:
 
             with torch.set_grad_enabled(train):
                 outputs = self.model(**batch)
+                
+  
                 loss = self.loss_fn(outputs.logits, torch.nn.functional.one_hot(batch['labels'].long(), num_classes=2).float())
 
                 if train:
                     self.optimizer.zero_grad()
                     loss.backward()
+                    
                     self.optimizer.step()
 
             total_loss += loss.item()
@@ -135,38 +185,34 @@ class EmoteTrainer:
                 strategies_total[current_strategies[i]] += 1
                 if preds[i] == current_true_labels[i]:
                     strategies_correct[current_strategies[i]] += 1
+                    
+            # Update batch progress bar with running loss
+            batch_pbar.set_postfix({'loss': f"{loss.item():.4f}"})
 
         avg_loss = total_loss / len(loader)
         print(f'{str_} Loss: {avg_loss}')
         print(classification_report(true_labels, predictions, zero_division=1, digits=4))
 
-        if str_ in ['Valid', 'Test']:
-            with open(self.fp_txt, 'a') as f:
-                # Write epoch number and str_ into fp_txt
-                f.write('Epoch: {}, {}\n'.format(epoch+1, str_))
-                f.write(classification_report(true_labels, predictions, zero_division=1, digits=4))
-                f.write('\n')
-        
-        if str_ in ['Valid', 'Test']:
-            with open(self.fp_csv, 'a') as f:
-                f.write('\n*** start *** {}\n'.format(epoch+1))
-                f.write('Epoch: {}\n'.format(epoch+1))
-                f.write('{}\n'.format(str_))
+        # Calculate overall accuracy
+        overall_accuracy = round(100 * (np.array(predictions) == np.array(true_labels)).mean(), 1)
+        print('Overall accuracy: {}%'.format(overall_accuracy))
 
-                f.write('{},{},{},{}\n'.format('idx', 'pred', 'true', 'strategy'))
-                for idx in range(len(predictions)):
-                    f.write('{},{},{},{}\n'.format(idx, predictions[idx], true_labels[idx], strategy_types[idx]))
-            print('write predictions into {}'.format(self.fp_csv))
+        with open(self.fp_txt, 'a') as f:
+            # Write the epoch number
+            f.write(f'Epoch {epoch+1} {str_}:\n')
+            # Write the classification report
+            f.write('Classification Report:\n')
+            f.write(classification_report(true_labels, predictions, zero_division=1, digits=4))
+            # Write the overall accuracy
+            f.write('Overall accuracy: {}%\n'.format(overall_accuracy))
 
-        # Get accuracy score overall
-        overall_accuracy = round(np.sum(np.array(predictions) == np.array(true_labels)) / len(true_labels)  * 100, 1)
-        if str_ in ['Valid', 'Test']:
-            with open(self.fp_txt, 'a') as f:
-                f.write(f'{str_} accuracy: {overall_accuracy}\n\n')
-                # Then write header 'strategy, accuracy, correct count / total number' into fp_txt
-                f.write('{}, {}, {}\n'.format('strategy', 'accuracy', 'correct count / total number'))
+        with open(self.fp_csv, 'a') as f:
+            # Write the epoch number, split, and accuracy
+            f.write('{},{},{}\n'.format(epoch+1, str_, overall_accuracy))
 
+        # Calculate accuracy for each strategy
         strategy_acc = []
+        
         # Finally, after the loop, print the accuracies for each strategy:
         for i in range(len(self.strategy_map)):
             if strategies_total[i] != 0:
@@ -182,5 +228,6 @@ class EmoteTrainer:
                             f.write('\n')
             else:
                 print(f'No instances of strategy {i} {self.strategy_map_inverted[i]} found')
+                strategy_acc.append(0)  # Append 0 for strategies with no instances
 
         return overall_accuracy, strategy_acc

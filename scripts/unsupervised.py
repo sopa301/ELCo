@@ -11,7 +11,7 @@ from torch.utils.data import DataLoader
 import torch.nn as nn
 from torch.nn import BCEWithLogitsLoss
 from transformers import AutoTokenizer, AutoModelForSequenceClassification
-from transformers import AdamW
+from torch.optim import AdamW
 from emote_config import Emote_Config
 
 

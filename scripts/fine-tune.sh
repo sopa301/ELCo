@@ -1,9 +1,9 @@
 #!/bin/bash
 
 # Please define your own path here
-huggingface_path=YOUR_PATH
+huggingface_path=./huggingface-emoji/
 
-for model_name in bert-base roberta-base roberta-large bart-large
+for model_name in bert-base
 do
     for seed in 43 44 45 46 47
     do

@@ -1,0 +1,7 @@
+*
+# But don't ignore these directories and files
+!scripts/
+!scripts/**
+!.gitignore
+!benchmark_data/**
+!dataset_following_elco_split/**
