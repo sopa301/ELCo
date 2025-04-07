@@ -107,11 +107,8 @@ class EmoteMultimodalModel(nn.Module):
         self.config = config
         self.num_labels = num_labels
         
-        # Text encoder - load but freeze completely
+        # Text encoder
         self.text_model = AutoModel.from_pretrained(config.model_path)
-        # Freeze the text model completely
-        for param in self.text_model.parameters():
-            param.requires_grad = False
         
         # Image encoder (Swin Transformer)
         if config.image_model_name == "swin_tiny_patch4_window7_224":
@@ -126,24 +123,22 @@ class EmoteMultimodalModel(nn.Module):
         # Remove the classification head from the image model
         self.image_model.head = nn.Identity()
         
-        # IMPORTANT: Keep the image model trainable
+        # IMPORTANT: Freeze the image model completely
         for param in self.image_model.parameters():
-            param.requires_grad = True
+            param.requires_grad = False
         
         # Get dimensions
         self.text_dim = 768  # BERT hidden size
         self.img_dim = self.image_model.norm.normalized_shape[0]
         
-        # Skip fusion and use only image features
-        # Add a projection layer to map image features to classification space
-        self.img_projection = nn.Sequential(
-            nn.Linear(self.img_dim, self.text_dim),
-            nn.LayerNorm(self.text_dim),
-            nn.GELU()
-        )
+        # Multimodal fusion
+        self.fusion = MultimodalFusion(self.text_dim, self.img_dim, config.fusion_hidden_size)
+        
+        # Dropout for regularization
+        self.dropout = nn.Dropout(config.fusion_dropout)
         
         # Classification head
-        self.classifier = nn.Linear(self.text_dim, num_labels)
+        self.classifier = nn.Linear(config.fusion_hidden_size, num_labels)
         
         # Initialize weights
         self._init_weights()
@@ -155,31 +150,38 @@ class EmoteMultimodalModel(nn.Module):
     
     def _init_weights(self):
         """Initialize the weights properly"""
-        # Initialize classifier and projection
+        # Initialize classifier
         nn.init.normal_(self.classifier.weight, std=0.01)
         nn.init.zeros_(self.classifier.bias)
-        
-        # Initialize projection layers
-        for module in self.img_projection.modules():
-            if isinstance(module, nn.Linear):
-                nn.init.normal_(module.weight, std=0.01)
-                if module.bias is not None:
-                    nn.init.zeros_(module.bias)
     
     def forward(self, input_ids=None, attention_mask=None, token_type_ids=None, images=None, labels=None, **kwargs):
-        # Process image input only
+        # Process text input
+        text_outputs = self.text_model(
+            input_ids=input_ids,
+            attention_mask=attention_mask,
+            token_type_ids=token_type_ids,
+            return_dict=True
+        )
+        
+        # Get text features
+        text_features = text_outputs.last_hidden_state
+        
+        # Process image input
         image_features = self.image_model(images)
         
-        # Project image features to classification space
-        projected_features = self.img_projection(image_features)
+        # Fuse modalities
+        fused_features = self.fusion(text_features, image_features)
+        
+        # Apply dropout
+        fused_features = self.dropout(fused_features)
         
         # Classification
-        logits = self.classifier(projected_features)
+        logits = self.classifier(fused_features)
         
         # Calculate loss
         loss = None
         if labels is not None:
-            # Use CrossEntropyLoss
+            # Use CrossEntropyLoss 
             loss_fct = nn.CrossEntropyLoss()
             loss = loss_fct(logits, labels)
             
@@ -194,7 +196,7 @@ class EmoteMultimodalModel(nn.Module):
         return type('obj', (object,), {
             'loss': loss,
             'logits': logits,
-            'hidden_states': None  # No text hidden states since we're not using the text model
+            'hidden_states': text_outputs.hidden_states
         })
     
     # Methods for saving and loading
