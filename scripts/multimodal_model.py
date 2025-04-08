@@ -128,7 +128,7 @@ class EmoteMultimodalModel(nn.Module):
             param.requires_grad = False
 
         # Get dimensions
-        self.text_dim = 1024  # BERT hidden size
+        self.text_dim = 768  # BERT hidden size
         self.img_dim = self.image_model.norm.normalized_shape[0]
         
         # Multimodal fusion
