@@ -16,7 +16,7 @@ class Emote_Multimodal_Config(Emote_Config):
         
         # Fusion parameters
         self.fusion_hidden_size = 1024  # Same as RoBERTA-large hidden size for compatibility
-        self.fusion_dropout = 0.1
+        self.fusion_dropout = 0.2
         
         # Model save directory for multimodal model
         self.model_save_dir = '{}/emote-multimodal-{}'.format(self.hfpath, self.model_name)
