@@ -3,7 +3,7 @@
 # Please define your own path here
 huggingface_path=./huggingface-emoji/
 
-for model_name in bert-base
+for model_name in bart-large
 do
     for seed in 43 44 45 46 47
     do
