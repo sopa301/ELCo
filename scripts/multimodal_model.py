@@ -108,7 +108,7 @@ class EmoteMultimodalModel(nn.Module):
         self.num_labels = num_labels
         
         # Text encoder
-        self.text_model = AutoModel.from_pretrained(config.model_path)
+        self.text_model = AutoModel.from_pretrained(config.model_path, output_hidden_states=True)
         
         # Image encoder (Swin Transformer)
         if config.image_model_name == "swin_tiny_patch4_window7_224":
