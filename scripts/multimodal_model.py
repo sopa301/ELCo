@@ -159,7 +159,7 @@ class EmoteMultimodalModel(nn.Module):
         text_outputs = self.text_model(
             input_ids=input_ids,
             attention_mask=attention_mask,
-            token_type_ids=token_type_ids,
+            # token_type_ids=token_type_ids,
             return_dict=True
         )
         
