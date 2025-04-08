@@ -127,6 +127,10 @@ class EmoteMultimodalModel(nn.Module):
         for param in self.image_model.parameters():
             param.requires_grad = False
         
+        for i in range(6):
+          for param in self.text_model.encoder.layer[i].parameters():
+              param.requires_grad = False
+
         # Get dimensions
         self.text_dim = 768  # BERT hidden size
         self.img_dim = self.image_model.norm.normalized_shape[0]

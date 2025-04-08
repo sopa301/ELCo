@@ -4,7 +4,8 @@
 huggingface_path=./huggingface-emoji/
 
 # Multimodal models
-for model_name in roberta-base
+for model_name in bert-base
+
 do
     for seed in 43 44 45 46 47
     do
