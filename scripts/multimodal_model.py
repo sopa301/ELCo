@@ -128,7 +128,7 @@ class EmoteMultimodalModel(nn.Module):
             param.requires_grad = False
 
         # Get dimensions
-        self.text_dim = 1024  # BERT hidden size
+        self.text_dim = 768  # BERT hidden size
         self.img_dim = self.image_model.norm.normalized_shape[0]
         
         # Multimodal fusion
@@ -159,7 +159,7 @@ class EmoteMultimodalModel(nn.Module):
         text_outputs = self.text_model(
             input_ids=input_ids,
             attention_mask=attention_mask,
-            # token_type_ids=token_type_ids,
+            token_type_ids=token_type_ids,
             return_dict=True
         )
         
@@ -196,7 +196,7 @@ class EmoteMultimodalModel(nn.Module):
         return type('obj', (object,), {
             'loss': loss,
             'logits': logits,
-            # 'hidden_states': text_outputs.hidden_states
+            'hidden_states': text_outputs.hidden_states
         })
     
     # Methods for saving and loading

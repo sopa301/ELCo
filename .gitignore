@@ -4,5 +4,5 @@
 !scripts/**
 !.gitignore
 !benchmark_data/
-!dataset_following_elco_split/
-!dataset_following_elco_split/**
+!datasets/
+!datasets/**
