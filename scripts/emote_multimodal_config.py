@@ -15,7 +15,7 @@ class Emote_Multimodal_Config(Emote_Config):
         self.test_img_dir = 'dataset_following_elco_split/generated_img_dataset/test_google'
         
         # Fusion parameters
-        self.fusion_hidden_size = 1024  # Same as RoBERTA-large hidden size for compatibility
+        self.fusion_hidden_size = 768  # Same as RoBERTA-large hidden size for compatibility
         self.fusion_dropout = 0.2
         
         # Model save directory for multimodal model
