@@ -196,7 +196,7 @@ class EmoteMultimodalModel(nn.Module):
         return type('obj', (object,), {
             'loss': loss,
             'logits': logits,
-            'hidden_states': text_outputs.hidden_states
+            # 'hidden_states': text_outputs.hidden_states
         })
     
     # Methods for saving and loading
